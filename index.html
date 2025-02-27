@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Змейка</title>
+    <title>Тетрис</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body {
@@ -24,102 +24,201 @@
             margin: 5px;
             font-size: 16px;
         }
+        #score {
+            font-size: 18px;
+            margin: 5px 0;
+        }
     </style>
 </head>
 <body>
-    <h3>Змейка</h3>
-    <canvas id="gameCanvas" width="300" height="300"></canvas>
+    <h3>Тетрис</h3>
+    <div id="score">Счёт: 0</div>
+    <canvas id="gameCanvas" width="200" height="400"></canvas>
     <div class="controls">
-        <button onclick="setDirection('up')">⬆️</button>
-        <button onclick="setDirection('down')">⬇️</button>
-        <button onclick="setDirection('left')">⬅️</button>
-        <button onclick="setDirection('right')">➡️</button>
+        <button onclick="moveLeft()">⬅️</button>
+        <button onclick="moveRight()">➡️</button>
+        <button onclick="rotate()">🔄</button>
+        <button onclick="moveDown()">⬇️</button>
+        <button onclick="newGame()">Новая игра</button>
         <button onclick="closeGame()">Закрыть</button>
     </div>
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        const gridSize = 30;
-        let snake = [{ x: 150, y: 150 }];
-        let food = { x: 90, y: 90 };
-        let direction = 'right';
+        const scoreDisplay = document.getElementById('score');
+        const gridSize = 20;
+        const cols = canvas.width / gridSize; // 10 колонок
+        const rows = canvas.height / gridSize; // 20 строк
+        let board = Array(rows).fill().map(() => Array(cols).fill(0)); // Игровое поле
         let score = 0;
         let gameRunning = true;
 
-        function setDirection(newDir) {
-            if (!gameRunning) return;
-            const opposites = { 'up': 'down', 'down': 'up', 'left': 'right', 'right': 'left' };
-            if (newDir !== opposites[direction]) direction = newDir;
+        // Тетромино (фигуры)
+        const shapes = [
+            [[1, 1, 1, 1]], // I
+            [[1, 1], [1, 1]], // O
+            [[1, 1, 1], [0, 1, 0]], // T
+            [[1, 1, 1], [1, 0, 0]], // L
+            [[1, 1, 1], [0, 0, 1]], // J
+            [[1, 1, 0], [0, 1, 1]], // S
+            [[0, 1, 1], [1, 1, 0]]  // Z
+        ];
+        const colors = ['cyan', 'yellow', 'purple', 'orange', 'blue', 'green', 'red'];
+
+        let currentShape, currentX, currentY;
+
+        function spawnShape() {
+            const index = Math.floor(Math.random() * shapes.length);
+            currentShape = shapes[index];
+            currentX = Math.floor(cols / 2) - Math.floor(currentShape[0].length / 2);
+            currentY = 0;
+            if (!isValidMove(currentShape, currentX, currentY)) {
+                gameRunning = false;
+                Telegram.WebApp.showAlert(`Игра окончена! Счёт: ${score}`);
+            }
+            return index;
         }
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = 'green';
-            snake.forEach(segment => ctx.fillRect(segment.x, segment.y, gridSize - 2, gridSize - 2));
-            ctx.fillStyle = 'red';
-            ctx.fillRect(food.x, food.y, gridSize - 2, gridSize - 2);
+            // Рисуем поле
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    if (board[y][x]) {
+                        ctx.fillStyle = colors[board[y][x] - 1];
+                        ctx.fillRect(x * gridSize, y * gridSize, gridSize - 1, gridSize - 1);
+                    }
+                }
+            }
+            // Рисуем текущую фигуру
+            ctx.fillStyle = colors[shapeIndex];
+            currentShape.forEach((row, dy) => {
+                row.forEach((value, dx) => {
+                    if (value) {
+                        ctx.fillRect((currentX + dx) * gridSize, (currentY + dy) * gridSize, gridSize - 1, gridSize - 1);
+                    }
+                });
+            });
+            scoreDisplay.textContent = `Счёт: ${score}`;
         }
 
-        function move() {
+        function isValidMove(shape, x, y) {
+            return shape.every((row, dy) => {
+                return row.every((value, dx) => {
+                    if (!value) return true;
+                    const newX = x + dx;
+                    const newY = y + dy;
+                    return newX >= 0 && newX < cols && newY < rows && (newY < 0 || !board[newY][newX]);
+                });
+            });
+        }
+
+        function mergeShape() {
+            currentShape.forEach((row, dy) => {
+                row.forEach((value, dx) => {
+                    if (value) {
+                        board[currentY + dy][currentX + dx] = shapeIndex + 1;
+                    }
+                });
+            });
+        }
+
+        function clearLines() {
+            let linesCleared = 0;
+            for (let y = rows - 1; y >= 0; y--) {
+                if (board[y].every(cell => cell)) {
+                    board.splice(y, 1);
+                    board.unshift(Array(cols).fill(0));
+                    linesCleared++;
+                    y++; // Проверяем ту же строку снова после сдвига
+                }
+            }
+            score += linesCleared * 10; // 10 очков за линию
+        }
+
+        function moveDown() {
             if (!gameRunning) return;
-
-            let head = { x: snake[0].x, y: snake[0].y };
-            if (direction === 'up') head.y -= gridSize;
-            if (direction === 'down') head.y += gridSize;
-            if (direction === 'left') head.x -= gridSize;
-            if (direction === 'right') head.x += gridSize;
-
-            if (head.x < 0 || head.x >= canvas.width || head.y < 0 || head.y >= canvas.height ||
-                snake.some(segment => segment.x === head.x && segment.y === head.y)) {
-                gameRunning = false;
-                Telegram.WebApp.showAlert(`Игра окончена! Счёт: ${score}`);
-                return;
-            }
-
-            snake.unshift(head);
-            if (head.x === food.x && head.y === food.y) {
-                score++;
-                food = {
-                    x: Math.floor(Math.random() * (canvas.width / gridSize)) * gridSize,
-                    y: Math.floor(Math.random() * (canvas.height / gridSize)) * gridSize
-                };
+            if (isValidMove(currentShape, currentX, currentY + 1)) {
+                currentY++;
             } else {
-                snake.pop();
+                mergeShape();
+                clearLines();
+                shapeIndex = spawnShape();
             }
-
             draw();
-            setTimeout(move, 200); // Скорость движения
+        }
+
+        function moveLeft() {
+            if (!gameRunning) return;
+            if (isValidMove(currentShape, currentX - 1, currentY)) {
+                currentX--;
+                draw();
+            }
+        }
+
+        function moveRight() {
+            if (!gameRunning) return;
+            if (isValidMove(currentShape, currentX + 1, currentY)) {
+                currentX++;
+                draw();
+            }
+        }
+
+        function rotate() {
+            if (!gameRunning) return;
+            const rotated = currentShape[0].map((_, index) =>
+                currentShape.map(row => row[index]).reverse()
+            );
+            if (isValidMove(rotated, currentX, currentY)) {
+                currentShape = rotated;
+                draw();
+            }
+        }
+
+        function gameLoop() {
+            if (gameRunning) {
+                moveDown();
+                setTimeout(gameLoop, 500); // Скорость падения
+            }
         }
 
         function closeGame() {
+            gameRunning = false;
             Telegram.WebApp.sendData(JSON.stringify({ score: score }));
             Telegram.WebApp.close();
+        }
+
+        function newGame() {
+            board = Array(rows).fill().map(() => Array(cols).fill(0));
+            score = 0;
+            gameRunning = true;
+            shapeIndex = spawnShape();
+            draw();
+            gameLoop();
         }
 
         // Управление клавиатурой
         document.addEventListener('keydown', (event) => {
             switch (event.key) {
-                case 'ArrowUp':
-                    setDirection('up');
-                    break;
-                case 'ArrowDown':
-                    setDirection('down');
-                    break;
                 case 'ArrowLeft':
-                    setDirection('left');
+                    moveLeft();
                     break;
                 case 'ArrowRight':
-                    setDirection('right');
+                    moveRight();
+                    break;
+                case 'ArrowDown':
+                    moveDown();
+                    break;
+                case 'ArrowUp':
+                    rotate();
                     break;
             }
         });
 
-        Telegram.WebApp.onEvent('webAppReady', () => {
-            draw();
-            move();
-        });
-
-        Telegram.WebApp.ready();
+        // Старт игры
+        let shapeIndex = spawnShape();
+        draw();
+        gameLoop();
     </script>
 </body>
 </html>
